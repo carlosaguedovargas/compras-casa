@@ -2,7 +2,7 @@ import sqlite3
 import os
 import streamlit as st
 import psycopg2
-from psycopg2.extras import RealDictCursor
+from psycopg2.extras import DictCursor
 from datetime import datetime
 
 # DB CONFIG
@@ -14,8 +14,9 @@ def is_cloud_db():
 
 def get_connection():
     if is_cloud_db():
-        # Postgres Connection
-        conn = psycopg2.connect(st.secrets["DB_URL"], cursor_factory=RealDictCursor)
+        # Postgres Connection (Cloud)
+        # Usamos DictCursor para que Pandas entienda que son filas de datos
+        conn = psycopg2.connect(st.secrets["DB_URL"], cursor_factory=DictCursor)
         return PostgresConnectionWrapper(conn)
     else:
         # Local SQLite Connection
@@ -76,6 +77,7 @@ class PostgresCursorWrapper:
 
     @property
     def description(self):
+        # Necesario para que Pandas lea las columnas
         return self.cursor.description
 
     def close(self):
