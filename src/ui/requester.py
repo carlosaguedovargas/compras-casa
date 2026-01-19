@@ -19,10 +19,10 @@ def render_requester_view(user):
     query = '''
         SELECT 
             p.id, 
-            p.name as Producto, 
-            p.category as Categoría, 
-            p.uom as Unidad,
-            SUM(s.quantity_requested) as Solicitado
+            p.name as "Producto", 
+            p.category as "Categoría", 
+            p.uom as "Unidad",
+            SUM(s.quantity_requested) as "Solicitado"
         FROM products p
         LEFT JOIN shopping_list_items s 
             ON p.id = s.product_id 
@@ -137,3 +137,4 @@ def render_requester_view(user):
             st.info("No hubo cambios.")
 
     conn.close()
+
