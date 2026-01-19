@@ -37,11 +37,11 @@ def render_admin_view(user):
     pending_df = pd.read_sql('''
         SELECT 
             s.id, 
-            p.name as Producto, 
-            s.quantity_requested as Cantidad, 
-            p.uom as Unidad,
-            u.username as Solicitante, 
-            'Pendiente' as Estado -- Helper for logic if needed
+            p.name as "Producto", 
+            s.quantity_requested as "Cantidad", 
+            p.uom as "Unidad",
+            u.username as "Solicitante", 
+            'Pendiente' as "Estado"
         FROM shopping_list_items s
         JOIN products p ON s.product_id = p.id
         JOIN users u ON s.requester_id = u.id
@@ -106,3 +106,4 @@ def render_admin_view(user):
                 st.info("No seleccionaste ninguna acción.")
 
     conn.close()
+
