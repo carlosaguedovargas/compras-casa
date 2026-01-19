@@ -7,15 +7,6 @@ def render_requester_view(user):
     
     conn = get_connection()
     
-    # Check for reload query param or button (optional), for now just load
-    
-    # 1. Get all products
-    # 2. Get current pending items for this user (or global? User said "Available until purchase", let's assume global pending makes sense for a family list, but safer to stick to per-user edits first, or merge. 
-    # Let's try: Show what *I* have requested or what is requested in total? 
-    # "Información disponible hasta que la compra se realice".
-    # I will show the TOTAL pending quantity for each product to avoid duplicates?
-    # No, simple approach: Show products, Left Join with list_items (status='Pendiente')
-    
     query = '''
         SELECT 
             p.id, 
@@ -31,15 +22,20 @@ def render_requester_view(user):
     '''
     
     df = pd.read_sql(query, conn)
-    # Fill NaN with 0 for logic, but maybe blank for UI? 0 is fine.
-       df['Solicitado'] = pd.to_numeric(df['Solicitado'], errors='coerce').fillna(0.0) 
+    # Fill NaN with 0.0 and cast to float (Postgres returns Decimal for SUM)
+    # Use to_numeric with coerce to handle any edge case strings
+    df['Solicitado'] = pd.to_numeric(df['Solicitado'], errors='coerce').fillna(0.0)
     
     # -- Search & Filter --
     col1, col2, col3 = st.columns([2, 1, 1])
     with col1:
         search_term = st.text_input("🔍 Buscar producto...")
     with col2:
-        categories = ["Todas"] + df['Categoría'].dropna().unique().tolist()
+        # Check if empty
+        if df.empty:
+            categories = ["Todas"]
+        else:
+            categories = ["Todas"] + df['Categoría'].dropna().unique().tolist()
         category_filter = st.selectbox("Categoría", categories)
     with col3:
         # Save Button
@@ -47,15 +43,12 @@ def render_requester_view(user):
 
     # Filter Logic
     filtered = df.copy()
-    if search_term:
+    if search_term and not filtered.empty:
         filtered = filtered[filtered['Producto'].str.contains(search_term, case=False, na=False)]
-    if category_filter != "Todas":
+    if category_filter != "Todas" and not filtered.empty:
         filtered = filtered[filtered['Categoría'] == category_filter]
 
     # Config Data Editor
-    # We want 'Solicitado' to be editable.
-    # We will hide ID.
-    
     edited_df = st.data_editor(
         filtered,
         column_config={
@@ -78,15 +71,6 @@ def render_requester_view(user):
     )
 
     if save_clicked:
-        # Logic to save changes
-        # We need to detect diffs between 'df' (original) and 'edited_df'.
-        # Since we filtered, edited_df only has visible rows. We should only update those?
-        # Or simpler: Update all rows present in edited_df where Solicitado changed?
-        # Streamlit data_editor returns the current state.
-        
-        # We will iterate through edited_df and upsert/delete pending items.
-        # Limitation: If multiple users edit, last save wins. Acceptable for MVP.
-        
         c = conn.cursor()
         changes_count = 0
         
@@ -95,37 +79,32 @@ def render_requester_view(user):
             new_qty = float(row['Solicitado'])
             
             # Get old qty from original df to reduce DB hits
-            original_row = df[df['id'] == product_id].iloc[0]
-            old_qty = float(original_row['Solicitado'])
+            if not df.empty:
+                original_row = df[df['id'] == product_id].iloc[0]
+                old_qty = float(original_row['Solicitado'])
+            else:
+                old_qty = 0.0
             
             if new_qty != old_qty:
                 # Update DB
-                # Strategy: 
-                # If new_qty > 0: Check if exists pending item. Update or Insert.
-                # If new_qty == 0: Delete pending item.
-                # NOTE: This approach merges all requests into one 'Pendiente' row per product per user?
-                # Actually query above sums all requests. 
-                # To simplify: We will attribute all edits to the Current User.
-                # But wait, if 'Solicitado' is sum of Mom + Dad, and Dad edits it, he might overwrite Mom.
-                # User said: "Available until purchase".
-                # Let's assume SINGLE pending line per product to keep it simple as a "Family List".
-                
-                # Check for existing pending item (any requester)
-                c.execute("SELECT id FROM shopping_list_items WHERE product_id = ? AND status = 'Pendiente'", (product_id,))
+                c.execute("SELECT id FROM shopping_list_items WHERE product_id = %s AND status = 'Pendiente'", (product_id,))
                 existing_item = c.fetchone()
                 
                 if new_qty > 0:
                     if existing_item:
-                        c.execute("UPDATE shopping_list_items SET quantity_requested = ? WHERE id = ?", (new_qty, existing_item['id']))
+                         # Use dictionary access if DictCursor, or tuple index if fallback
+                        item_id = existing_item['id'] if isinstance(existing_item, dict) else existing_item[0]
+                        c.execute("UPDATE shopping_list_items SET quantity_requested = %s WHERE id = %s", (new_qty, item_id))
                     else:
                         # Create new
                         c.execute('''
                             INSERT INTO shopping_list_items (product_id, requester_id, quantity_requested, status, created_at)
-                            VALUES (?, ?, ?, 'Pendiente', datetime('now'))
+                            VALUES (%s, %s, %s, 'Pendiente', NOW())
                         ''', (product_id, user['id'], new_qty))
                 else:
                     if existing_item:
-                        c.execute("DELETE FROM shopping_list_items WHERE id = ?", (existing_item['id'],))
+                        item_id = existing_item['id'] if isinstance(existing_item, dict) else existing_item[0]
+                        c.execute("DELETE FROM shopping_list_items WHERE id = %s", (item_id,))
                 
                 changes_count += 1
         
@@ -137,6 +116,3 @@ def render_requester_view(user):
             st.info("No hubo cambios.")
 
     conn.close()
-
-
-
