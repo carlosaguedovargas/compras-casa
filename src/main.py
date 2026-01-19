@@ -1,8 +1,12 @@
 import streamlit as st
 from auth import login, logout, get_current_user, sync_users_to_db
+from db import init_db
 from ui.requester import render_requester_view
 from ui.admin import render_admin_view
 from ui.buyer import render_buyer_view
+
+# Initialize DB (First thing!)
+init_db()
 
 # Sync Users
 sync_users_to_db()
