@@ -4,3 +4,4 @@ openpyxl
 streamlit-authenticator
 bcrypt
 plotly
+requests
