@@ -16,11 +16,11 @@ def render_stats_view(user):
     df = pd.read_sql('''
         SELECT 
             s.id, 
-            p.name as Producto, 
-            p.category as Categoría,
-            s.shopping_date as Fecha, 
-            s.price_real as Precio,
-            s.quantity_approved as Cantidad
+            p.name as "Producto", 
+            p.category as "Categoría",
+            s.shopping_date as "Fecha", 
+            s.price_real as "Precio",
+            s.quantity_approved as "Cantidad"
         FROM shopping_list_items s
         JOIN products p ON s.product_id = p.id
         WHERE s.status = 'Comprado'
@@ -77,3 +77,4 @@ def render_stats_view(user):
     st.dataframe(df[['Fecha', 'Producto', 'Categoría', 'Cantidad', 'Precio']], use_container_width=True)
     
     conn.close()
+
