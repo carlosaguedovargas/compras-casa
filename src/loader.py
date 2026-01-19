@@ -4,35 +4,34 @@ import requests
 import pandas as pd
 import os
 
-# CONFIGURACIÓN GOOGLE SHEETS
-# Instrucciones para el usuario:
-# 1. En Google Sheets, ve a Archivo > Compartir > Publicar en la web.
-# 2. Selecciona la hoja y elige "Valores separados por comas (.csv)".
-# 3. Copia el enlace y pégalo abajo en SHEET_URL.
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1Eu9f5rabzwIIfaMWg4ZpyhPBQR_IAmpC1zbv3Za4dpk/export?format=csv"  # <--- URL CORREGIDA AUTOMÁTICAMENTE
-
+# --- ASEGÚRATE DE QUE ESTA LÍNEA TENGA TU ENLACE REAL ---
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1Eu9f5rabzwIIfaMWg4ZpyhPBQR_IAmpC1zbv3Za4dpk/export?format=csv"
 EXCEL_PATH = "Cosas Casa.xlsx"
 
 def load_products_from_excel():
-    init_db()  # Ensure tables exist
+    init_db()
     
     df = None
     source_name = ""
 
-    # 1. Try Google Sheet URL first
+    # CHIVATO 1: Ver si detecta la URL
+    print(f"DEBUG: Revisando URL... Longitud: {len(SHEET_URL) if SHEET_URL else 0}")
+    
     if SHEET_URL and "docs.google.com" in SHEET_URL:
         try:
-            print(f"Intentando descargar desde Google Sheets...")
+            print(f"DEBUG: Intentando descargar desde Google Sheets: {SHEET_URL[:30]}...")
             response = requests.get(SHEET_URL)
             response.raise_for_status()
             df = pd.read_csv(io.StringIO(response.content.decode('utf-8')))
             source_name = "Google Sheets"
-            print("Datos descargados correctamente de Google Sheets.")
+            print(f"DEBUG: Datos descargados. Filas encontradas: {len(df)}")
         except Exception as e:
-            print(f"Error al conectar con Google Sheets: {e}")
+            print(f"ERROR: Fallo al conectar con Google Sheets: {e}")
             print("Intentando archivo local...")
+    else:
+        print("DEBUG: NO se detectó URL válida de Google Sheets en el código.")
     
-    # 2. Fallback to Local Excel
+    # INTENTO 2: Archivo Local
     if df is None:
         if os.path.exists(EXCEL_PATH):
             try:
@@ -42,41 +41,23 @@ def load_products_from_excel():
                 print(f"Error leyendo archivo local: {e}")
                 return
         else:
-            print(f"No se encontró ni URL configurada ni archivo local {EXCEL_PATH}")
+            print(f"ERROR FATAL: No se encontró URL ni archivo local.")
             return
-            
-    try:
-        # Normalize column names (strip spaces, lowercase)
-        df.columns = [str(c).strip().lower() for c in df.columns]
-        print(f"Columnas encontradas en {source_name}: {df.columns.tolist()}")
 
-        # Map expected columns
-        # Expected: Category, Product, Quantity (maybe?), Unit of Measure
-        # DB: name, category, uom, brand, image_path, last_price_estimate
+    # PROCESAMIENTO
+    try:
+        # Standardize columns
+        df.columns = [str(c).strip().lower() for c in df.columns]
         
-        # Mapping helpers
         col_map = {
-            'product': 'name',
-            'producto': 'name',
-            'item': 'name',
-            'nombre': 'name',
-            'category': 'category',
-            'categoría': 'category',
-            'categoria': 'category',
-            'tipo': 'category',  # Added based on earlier log seeing 'tipo' column
-            'unit': 'uom',
-            'unidad': 'uom',
-            'medida': 'uom',
-            'uom': 'uom',
-            'u/m': 'uom'
+            'product': 'name', 'producto': 'name', 'item': 'name', 'nombre': 'name',
+            'category': 'category', 'categoría': 'category', 'categoria': 'category', 'tipo': 'category',
+            'unit': 'uom', 'unidad': 'uom', 'medida': 'uom', 'uom': 'uom', 'u/m': 'uom'
         }
-        
-        # Rename columns based on map
         df = df.rename(columns={c: col_map[c] for c in df.columns if c in col_map})
         
-        # Check required
         if 'name' not in df.columns:
-            print("Error: Could not find 'Product' or 'Name' column.")
+            print(f"ERROR: Columnas encontradas: {df.columns.tolist()}. Falta 'name/producto'.")
             return
 
         conn = get_connection()
@@ -91,29 +72,35 @@ def load_products_from_excel():
             category = row.get('category', 'General')
             uom = row.get('uom', 'Unidad')
             
-            # Check if exists
-            c.execute("SELECT id FROM products WHERE name = ?", (name,))
+            # Check existance
+            c.execute("SELECT id FROM products WHERE name = %s", (name,)) # USAMOS %s POR SI ES POSTGRES
             existing = c.fetchone()
             
             if not existing:
-                c.execute('''
-                    INSERT INTO products (name, category, uom)
-                    VALUES (?, ?, ?)
-                ''', (name, category, uom))
+                c.execute("SELECT id FROM products WHERE name = ?", (name,)) # FALLBACK SQLITE
+                existing = c.fetchone()
+
+            if not existing:
+                # INSERT (Try generic first)
+                try:
+                    c.execute('INSERT INTO products (name, category, uom) VALUES (?, ?, ?)', (name, category, uom))
+                except:
+                     c.execute('INSERT INTO products (name, category, uom) VALUES (%s, %s, %s)', (name, category, uom))
                 count += 1
             else:
-                # Update existing
-                c.execute('''
-                    UPDATE products SET category = ?, uom = ? WHERE name = ?
-                ''', (category, uom, name))
+                # UPDATE
+                try:
+                    c.execute('UPDATE products SET category = ?, uom = ? WHERE name = ?', (category, uom, name))
+                except:
+                    c.execute('UPDATE products SET category = %s, uom = %s WHERE name = %s', (category, uom, name))
                 updated += 1
         
         conn.commit()
         conn.close()
-        print(f"Successfully loaded {count} new products. Updated {updated} existing products.")
+        print(f"ÉXITO: Se cargaron {count} nuevos y se actualizaron {updated}.")
         
     except Exception as e:
-        print(f"Error loading excel: {e}")
+        print(f"ERROR PROCESANDO DATOS: {e}")
 
 if __name__ == "__main__":
     load_products_from_excel()
