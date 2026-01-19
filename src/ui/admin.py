@@ -11,6 +11,15 @@ def render_admin_view(user):
 
     # -- Sync Button --
     with st.expander("🔄 Actualizar Catálogo (Google Sheets / Excel)"):
+         with st.expander("🔄 Actualizar Catálogo (Google Sheets / Excel)"):
+        # Diagnostics
+        c = conn.cursor()
+        try:
+            c.execute("SELECT COUNT(*) as count FROM products")
+            prod_count = c.fetchone()['count']
+            st.write(f"📊 Estado actual DB: **{prod_count}** Productos")
+        except Exception as e:
+            st.error(f"Error DB: {e}")
         st.info("Pega tu enlace de Google Sheets en 'src/loader.py' si aún no lo has hecho.")
         if st.button("Descargar y Actualizar Productos"):
             with st.spinner("Actualizando..."):
@@ -106,4 +115,5 @@ def render_admin_view(user):
                 st.info("No seleccionaste ninguna acción.")
 
     conn.close()
+
 
