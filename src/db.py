@@ -74,6 +74,10 @@ class PostgresCursorWrapper:
     def rowcount(self):
         return self.cursor.rowcount
 
+    @property  # <--- ESTO ES LO NUEVO
+    def description(self):
+        return self.cursor.description
+
 def init_db():
     conn = get_connection()
     c = conn.cursor()
