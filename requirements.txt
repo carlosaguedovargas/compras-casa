@@ -5,3 +5,5 @@ streamlit-authenticator
 bcrypt
 plotly
 requests
+psycopg2-binary
+
