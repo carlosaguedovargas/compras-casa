@@ -32,7 +32,7 @@ def render_requester_view(user):
     
     df = pd.read_sql(query, conn)
     # Fill NaN with 0 for logic, but maybe blank for UI? 0 is fine.
-   df['Solicitado'] = df['Solicitado'].fillna(0.0).astype(float) 
+       df['Solicitado'] = pd.to_numeric(df['Solicitado'], errors='coerce').fillna(0.0) 
     
     # -- Search & Filter --
     col1, col2, col3 = st.columns([2, 1, 1])
@@ -137,5 +137,6 @@ def render_requester_view(user):
             st.info("No hubo cambios.")
 
     conn.close()
+
 
 
