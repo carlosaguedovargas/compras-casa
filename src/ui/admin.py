@@ -6,20 +6,25 @@ def render_admin_view(user):
     st.header(f"👑 Administración - Hola {user['username']}")
     
     conn = get_connection()
-    
-    conn = get_connection()
 
     # -- Sync Button --
     with st.expander("🔄 Actualizar Catálogo (Google Sheets / Excel)"):
-         with st.expander("🔄 Actualizar Catálogo (Google Sheets / Excel)"):
         # Diagnostics
         c = conn.cursor()
         try:
             c.execute("SELECT COUNT(*) as count FROM products")
-            prod_count = c.fetchone()['count']
-            st.write(f"📊 Estado actual DB: **{prod_count}** Productos")
+            result = c.fetchone()
+            # Handle DictCursor vs Tuple
+            prod_count = result['count'] if isinstance(result, dict) else result[0]
+            
+            c.execute("SELECT COUNT(*) as count FROM users")
+            result_u = c.fetchone()
+            user_count = result_u['count'] if isinstance(result_u, dict) else result_u[0]
+            
+            st.write(f"📊 Estado actual DB: **{prod_count}** Productos | **{user_count}** Usuarios")
         except Exception as e:
             st.error(f"Error DB: {e}")
+
         st.info("Pega tu enlace de Google Sheets en 'src/loader.py' si aún no lo has hecho.")
         if st.button("Descargar y Actualizar Productos"):
             with st.spinner("Actualizando..."):
@@ -42,7 +47,6 @@ def render_admin_view(user):
                     sys.stdout = old_stdout
     
     # Fetch Pending Requests
-    # query includes id to track update
     pending_df = pd.read_sql('''
         SELECT 
             s.id, 
@@ -63,14 +67,9 @@ def render_admin_view(user):
     else:
         st.subheader("Solicitudes Pendientes")
         
-        # Prepare DF for Editor
-        # Add "Aprobar" column (Checkbox) mapped to True by default? Or False?
-        # User wants simple list. Let's make it True by default for easier workflow.
+        # Add "Aprobar" columns
         pending_df['Aprobar'] = False 
         pending_df['Rechazar'] = False
-        
-        # We need distinct columns for editor
-        # "Cantidad" should be editable (Admins adjust)
         
         edited_df = st.data_editor(
             pending_df,
@@ -95,16 +94,12 @@ def render_admin_view(user):
             count_rejected = 0
             
             for index, row in edited_df.iterrows():
-                # Logic: If Approve is checked -> Approve with (possibly new) Quantity
-                # If Reject is checked -> Reject
-                # If Both -> Error or prioritize Reject? Prioritize Reject usually.
-                # If Neither -> Do nothing
-                
                 if row['Rechazar']:
-                    c.execute("UPDATE shopping_list_items SET status = 'Rechazado' WHERE id = ?", (row['id'],))
+                    # Use %s for native Postgres compatibility
+                    c.execute("UPDATE shopping_list_items SET status = 'Rechazado' WHERE id = %s", (row['id'],))
                     count_rejected += 1
                 elif row['Aprobar']:
-                    c.execute("UPDATE shopping_list_items SET status = 'Aprobado', quantity_approved = ? WHERE id = ?", (float(row['Cantidad']), row['id']))
+                    c.execute("UPDATE shopping_list_items SET status = 'Aprobado', quantity_approved = %s WHERE id = %s", (float(row['Cantidad']), row['id']))
                     count_approved += 1
             
             conn.commit()
@@ -115,5 +110,3 @@ def render_admin_view(user):
                 st.info("No seleccionaste ninguna acción.")
 
     conn.close()
-
-
