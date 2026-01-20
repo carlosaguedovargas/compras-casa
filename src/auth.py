@@ -1,3 +1,4 @@
+# Forzando update
 import streamlit as st
 import hashlib
 from db import get_connection
@@ -93,3 +94,4 @@ def login():
 def logout():
     st.session_state.user = None
     st.rerun()
+
