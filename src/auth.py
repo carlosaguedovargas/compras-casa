@@ -1,9 +1,8 @@
-# Forzando update
 import streamlit as st
 import hashlib
 from db import get_connection
 
-# Usuarios por defecto (solo se usan si la base de datos está vacía al inicio)
+# Initial default users (only used if DB user list is empty)
 DEFAULT_USERS = {
     "papa": {"password": "papa", "role": "Jefe", "id": 1},
     "mama": {"password": "mama", "role": "Jefe", "id": 2},
@@ -17,22 +16,23 @@ DEFAULT_USERS = {
 def sync_users_to_db():
     conn = get_connection()
     c = conn.cursor()
-    # Verificar si hay usuarios
+    # Ensure at least default users exist
+    # If users table is empty
     try:
         c.execute("SELECT COUNT(*) as count FROM users")
         res = c.fetchone()
-        count = res['count'] if isinstance(res, dict) else res[0]
+        count = res['count'] if res else 0
     except:
         count = 0
             
     if count == 0:
         for username, data in DEFAULT_USERS.items():
+            # Use %s for Postgres compatibility in production
             try:
-                # Postgres
                 c.execute("INSERT INTO users (id, username, password_hash, role) VALUES (%s, %s, %s, %s)",
                           (data['id'], username, data['password'], data['role']))
             except:
-                # Sqlite fallback
+                # Fallback implementation if simple query fails or for sqlite
                 c.execute("INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)",
                           (data['id'], username, data['password'], data['role']))
         conn.commit()
@@ -41,17 +41,17 @@ def sync_users_to_db():
 def check_credentials_db(username, password):
     conn = get_connection()
     c = conn.cursor()
+    # Try generic param style
     try:
-        # Postgres uses %s
         c.execute("SELECT id, username, role, password_hash FROM users WHERE username = %s AND password_hash = %s", (username, password))
     except:
-        # DB-API 2.0 uses ?
         c.execute("SELECT id, username, role, password_hash FROM users WHERE username = ? AND password_hash = ?", (username, password))
         
     user = c.fetchone()
     conn.close()
     
     if user:
+        # Convert row to dict
         if isinstance(user, tuple):
              return {"id": user[0], "username": user[1], "role": user[2]}
         else:
@@ -95,3 +95,5 @@ def logout():
     st.session_state.user = None
     st.rerun()
 
+def get_current_user():
+    return st.session_state.get("user")
