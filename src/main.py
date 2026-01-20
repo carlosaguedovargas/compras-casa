@@ -1,5 +1,11 @@
 import streamlit as st
-from auth import login, logout, get_current_user, sync_users_to_db, change_password
+# import auth # Import module directly to inspect it
+# from auth import login, logout, get_current_user, sync_users_to_db #, change_password <--- DESACTIVADO TEMPORALMENTE
+
+# --- DEBUG IMPORT ---
+import auth
+from auth import login, logout, get_current_user, sync_users_to_db
+
 from db import init_db
 from ui.requester import render_requester_view
 from ui.admin import render_admin_view
@@ -14,8 +20,8 @@ sync_users_to_db()
 
 # Page Config
 st.set_page_config(
-    page_title="Gestión de Compras",
-    page_icon="🛒",
+    page_title="Gestión de Compras (DEBUG)",
+    page_icon="🔧",
     layout="wide"
 )
 
@@ -34,7 +40,13 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # Title
-st.title("🛒 Compras Casa")
+st.title("🛒 Compras Casa (MODO DEBUG)")
+st.warning("⚠️ Modo Diagnóstico Activo: Revisando [auth.py](cci:7://file:///c:/Users/carlo/OneDrive/Documentos/Casa/src/auth.py:0:0-0:0)...")
+
+# --- DIAGNOSTIC BLOCK ---
+st.write("Funciones encontradas en auth.py:")
+st.code(dir(auth)) # ESTO NOS DIRÁ LA VERDAD
+# ------------------------
 
 # Auth Flow
 if not login():
@@ -48,15 +60,15 @@ with st.sidebar:
     st.write(f"Usuario: **{user['username']}**")
     st.write(f"Rol: **{user['role']}**")
     
-    with st.expander("🔑 Cambiar Contraseña"):
-        new_pass = st.text_input("Nueva contraseña", type="password", key="new_pass")
-        confirm_pass = st.text_input("Confirmar", type="password", key="conf_pass")
-        if st.button("Actualizar Clave"):
-            if new_pass and new_pass == confirm_pass and len(new_pass) > 0:
-                if change_password(user['id'], new_pass):
-                    st.success("¡Contraseña cambiada!")
-            else:
-                st.error("Error: Las contraseñas no coinciden o están vacías.")
+    # with st.expander("🔑 Cambiar Contraseña"):
+    #     new_pass = st.text_input("Nueva contraseña", type="password", key="new_pass")
+    #     confirm_pass = st.text_input("Confirmar", type="password", key="conf_pass")
+    #     if st.button("Actualizar Clave"):
+    #         if new_pass and new_pass == confirm_pass:
+    #             if change_password(user['id'], new_pass):
+    #                 st.success("¡Contraseña cambiada!")
+    #         else:
+    #             st.error("Las contraseñas no coinciden o están vacías.")
 
     st.divider()
     if st.button("Cerrar Sesión"):
