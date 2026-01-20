@@ -5,8 +5,13 @@ from db import get_connection
 def render_requester_view(user):
     st.header(f"📝 Solicitud de Productos - Hola {user['username']}")
     
+    # --- MEMORIA (CARRITO) ---
+    if 'cart_updates' not in st.session_state:
+        st.session_state['cart_updates'] = {}
+
     conn = get_connection()
     
+    # 1. Cargar datos de la BD
     query = '''
         SELECT 
             p.id, 
@@ -21,47 +26,58 @@ def render_requester_view(user):
         GROUP BY p.id
     '''
     
-    df = pd.read_sql(query, conn)
-    # Fill NaN with 0.0 and cast to float (Postgres returns Decimal for SUM)
-    # Use to_numeric with coerce to handle any edge case strings
-    df['Solicitado'] = pd.to_numeric(df['Solicitado'], errors='coerce').fillna(0.0)
+    df_db = pd.read_sql(query, conn)
+    df_db['Solicitado'] = pd.to_numeric(df_db['Solicitado'], errors='coerce').fillna(0.0)
+
+    # 2. Aplicar cambios de la Memoria sobre la vista
+    df_display = df_db.copy()
     
-    # -- Search & Filter --
-    col1, col2, col3 = st.columns([2, 1, 1])
+    for pid, new_qty in st.session_state['cart_updates'].items():
+        idx = df_display.index[df_display['id'] == pid]
+        if not idx.empty:
+            df_display.loc[idx, 'Solicitado'] = new_qty
+            
+    pending_count = len(st.session_state['cart_updates'])
+
+    # -- BARRA DE HERRAMIENTAS --
+    col1, col2, col3 = st.columns([2, 2, 1])
     with col1:
         search_term = st.text_input("🔍 Buscar producto...")
     with col2:
-        # Check if empty
-        if df.empty:
+        if df_display.empty:
             categories = ["Todas"]
         else:
-            categories = ["Todas"] + df['Categoría'].dropna().unique().tolist()
+            categories = ["Todas"] + sorted(df_display['Categoría'].dropna().unique().tolist())
         category_filter = st.selectbox("Categoría", categories)
     with col3:
-        # Save Button
-        save_clicked = st.button("💾 Guardar Cambios", type="primary")
+        # Botón inteligente
+        btn_label = "💾 Guardar"
+        if pending_count > 0:
+            btn_label = f"💾 Guardar ({pending_count})"
+            st.warning(f"Tienes {pending_count} cambios sin guardar.")
+            
+        save_clicked = st.button(btn_label, type="primary", use_container_width=True)
 
-    # Filter Logic
-    filtered = df.copy()
-    if search_term and not filtered.empty:
+    # -- FILTRADO --
+    filtered = df_display.copy()
+    if search_term:
         filtered = filtered[filtered['Producto'].str.contains(search_term, case=False, na=False)]
-    if category_filter != "Todas" and not filtered.empty:
+    if category_filter != "Todas":
         filtered = filtered[filtered['Categoría'] == category_filter]
 
-    # Config Data Editor
+    # -- TABLA --
     edited_df = st.data_editor(
         filtered,
         column_config={
-            "id": None, # Hide ID
+            "id": None, 
             "Producto": st.column_config.TextColumn("Producto", disabled=True),
-            "Categoría": st.column_config.TextColumn("Categoría", disabled=True),
-            "Unidad": st.column_config.TextColumn("Unidad", disabled=True),
-            # Quantity editable
+            "Categoría": None, # Oculto para ahorrar espacio en móvil
+            "Unidad": st.column_config.TextColumn("Unidad", disabled=True, width="small"),
             "Solicitado": st.column_config.NumberColumn(
-                "Cantidad a Solicitar",
+                "Cantidad",
                 min_value=0.0,
                 step=0.5,
-                help="Ingresa la cantidad que necesitas."
+                format="%.1f"
             )
         },
         use_container_width=True,
@@ -70,49 +86,70 @@ def render_requester_view(user):
         key="requester_editor"
     )
 
-    if save_clicked:
-        c = conn.cursor()
-        changes_count = 0
-        
+    # -- DETECTAR CAMBIOS --
+    # Si la tabla editada es diferente a lo que mostramos, actualizamos la memoria
+    if not edited_df.equals(filtered):
         for index, row in edited_df.iterrows():
-            product_id = row['id']
-            new_qty = float(row['Solicitado'])
+            pid = row['id']
+            current_val = float(row['Solicitado'])
             
-            # Get old qty from original df to reduce DB hits
-            if not df.empty:
-                original_row = df[df['id'] == product_id].iloc[0]
-                old_qty = float(original_row['Solicitado'])
+            # Buscamos el valor original en la BASE DE DATOS
+            db_row = df_db[df_db['id'] == pid]
+            original_val = float(db_row.iloc[0]['Solicitado']) if not db_row.empty else 0.0
+                
+            # Si es diferente a lo que hay en la BD, lo guardamos en el carrito
+            if current_val != original_val:
+                st.session_state['cart_updates'][pid] = current_val
             else:
-                old_qty = 0.0
-            
-            if new_qty != old_qty:
-                # Update DB
-                c.execute("SELECT id FROM shopping_list_items WHERE product_id = %s AND status = 'Pendiente'", (product_id,))
-                existing_item = c.fetchone()
-                
-                if new_qty > 0:
-                    if existing_item:
-                         # Use dictionary access if DictCursor, or tuple index if fallback
-                        item_id = existing_item['id'] if isinstance(existing_item, dict) else existing_item[0]
-                        c.execute("UPDATE shopping_list_items SET quantity_requested = %s WHERE id = %s", (new_qty, item_id))
-                    else:
-                        # Create new
-                        c.execute('''
-                            INSERT INTO shopping_list_items (product_id, requester_id, quantity_requested, status, created_at)
-                            VALUES (%s, %s, %s, 'Pendiente', NOW())
-                        ''', (product_id, user['id'], new_qty))
-                else:
-                    if existing_item:
-                        item_id = existing_item['id'] if isinstance(existing_item, dict) else existing_item[0]
-                        c.execute("DELETE FROM shopping_list_items WHERE id = %s", (item_id,))
-                
-                changes_count += 1
-        
-        conn.commit()
-        if changes_count > 0:
-            st.success("✅ Lista actualizada correctamente.")
-            st.rerun()
+                # Si volvió al valor original, lo quitamos del carrito
+                if pid in st.session_state['cart_updates']:
+                    del st.session_state['cart_updates'][pid]
+                    
+            # Nota: Necesitas interactuar otra vez para que se actualice el contador visual,
+            # (Limitación de Streamlit), pero los datos SÍ se están guardando en memoria.
+
+    # -- GUARDAR EN BD --
+    if save_clicked:
+        if not st.session_state['cart_updates']:
+            st.info("No hay cambios para guardar.")
         else:
-            st.info("No hubo cambios.")
+            c = conn.cursor()
+            changes_count = 0
+            
+            try:
+                for pid, new_qty in st.session_state['cart_updates'].items():
+                    # Buscar si ya existe pendiente
+                    c.execute("SELECT id FROM shopping_list_items WHERE product_id = %s AND status = 'Pendiente'", (pid,))
+                    existing = c.fetchone()
+                    
+                    if new_qty > 0:
+                        if existing:
+                            # Update
+                            item_id = existing['id'] if isinstance(existing, dict) else existing[0]
+                            c.execute("UPDATE shopping_list_items SET quantity_requested = %s WHERE id = %s", (new_qty, item_id))
+                        else:
+                            # Insert
+                            c.execute('''
+                                INSERT INTO shopping_list_items (product_id, requester_id, quantity_requested, status, created_at)
+                                VALUES (%s, %s, %s, 'Pendiente', NOW())
+                            ''', (pid, user['id'], new_qty))
+                            
+                    else:
+                        # Quantity 0 -> Delete
+                        if existing:
+                            item_id = existing['id'] if isinstance(existing, dict) else existing[0]
+                            c.execute("DELETE FROM shopping_list_items WHERE id = %s", (item_id,))
+                    
+                    changes_count += 1
+                
+                conn.commit()
+                st.success(f"✅ Se guardaron {changes_count} actualizaciones correctamente.")
+                
+                # Vaciar carrito
+                st.session_state['cart_updates'] = {}
+                st.rerun()
+                
+            except Exception as e:
+                st.error(f"Error al guardar: {e}")
 
     conn.close()
